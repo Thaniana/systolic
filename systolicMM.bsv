@@ -1,4 +1,5 @@
 import Vector::*;
+import FIFO::*;
 
 // 'define m_length 4
 
@@ -26,6 +27,7 @@ function Vector#(4,Vector#(4,Reg#(32))) peToResult(Vector#(4,Vector#(4,Reg#(PE))
 endfunction
 
 //the max index of result here is 4x4
+//add the start location to this as well
 function Bit#(4) indices_to_location(Bit#(2) h, Bit#(2) w);
     //this should combinationally go through all the PE locations and get us the result out
     return h<<2 + w; //Essentially h*4 + w
@@ -33,30 +35,70 @@ endfunction
 
 
 
-
+/*
+No locks etc needed as all the rules are Action calls and there is a central Q in the middle of each PE
+*/
 interface PE;
-    method Action recieve(Bit#(32) a, Bit#(32) b); 
-    method Action send(Bit#(32) a, Bit#(32) b);
+    method Action recieve_a(Bit#(32) a); 
+    method Action recieve_b(Bit#(32) b); 
+    method ActionValue#(Bit#(32)) send_a();
+    method ActionValue#(Bit#(32)) send_b();
     method ActionValue#(Bit#(32)) read_c();
 endinterface
 
 module mkPE(PE);
-    Reg#(Bit#(32)) c_value <- mkReg(0); //this is the value stored in here that is the running sum every time
+    Reg#(Bit#(32)) c_value <- mkReg(0); //this is the value stored in here that is the running sum every time - TODO: instantiated to 0 when
+    
+    FIFO#(Bit#(32)) q_a <- mkBypassFIFO; //doing independantly  - could do a and b together too
+    FIFO#(Bit#(32)) q_b <- mkBypassFIFO; //doing independantly - TODO: hopefully the sie here is not 1 of thee FIFO
+
+    Reg#(Bit#(32)) prod_a <- mkReg(0);
+    Reg#(Bit#(32)) prod_b <- mkReg(0);
+
+    Reg#(Bit#(2)) prod_ready <- mkReg(0);
 
 
-    method Action recieve(Bit#(32) a, Bit#(32) b); 
-        //reads the values from a prrevious queue from the outer queue and then adds it to the inner queue
+    method Action recieve_a(Bit#(32) a);
+        //Note the a and b here is togetheer - may havee to changee the logic here depending on thee outer logic
 
-
+        //reads the values from a previous queue from the outer queue and then adds it to the inner queue
+        q_a.enq(a);
     endmethod
 
+    method Action recieve_b(Bit#(32) b);
+        //Note the a and b here is togetheer - may havee to changee the logic here depending on thee outer logic
 
-    method Action send(Bit#(32) a, Bit#(32) b);
+        //reads the values from a previous queue from the outer queue and then adds it to the inner queue
+        q_a.enq(b);
+    endmethod
+
+    rule prod if (prod_ready == 2);
+        c_value <= c_value + prod_a*prod_b;
+        prod_ready <= 0;
+    endrule
+
+    method ActionValue(Bit#(32)) send_a();
         //maybe make the above things, ie holding a and b into a strruct of the two values 
         //rreads the value frrom thee queue and then returns it to the 
-
-
+        
+        let aa = q_a.first();
+        q_a.deq();
+        prod_a <= aa;
+        prod_ready <= prod_ready + 1;
+        return aa;
     endmethod
+
+    method ActionValue(Bit#(32)) send_b();
+        //maybe make the above things, ie holding a and b into a strruct of the two values 
+        //rreads the value frrom thee queue and then returns it to the 
+        
+        let bb = q_b.first();
+        q_b.deq();
+        prod_b <= bb;
+        prod_ready <= prod_ready + 1;
+        return bb;
+    endmethod
+    
 
     method ActionValue#(Bit#(32)) read_c();
         //this is to essentially read the value stored in here that is all
@@ -83,6 +125,13 @@ module convertab(ab);
     //look at implementation in python in the MatTest file - creating a vector of a number of brams that stores both a and b
 
     // look at notes for what exactly is being done
+
+
+    /*
+    This function actually would pick up a and b from the L1 cache orr the main memory - still works given the addresses
+
+    The only issue is that a and b you should be able to get in the same cycle!! If not there will be an added complexity!
+    */
 
     Reg#(Addr) start_loca <- mkReg(0);
     Reg#(Addr) start_locb <- mkReg(0);
@@ -169,8 +218,84 @@ module mkSystolic(sysMM);
     THis is the parent which will access all the other smaller modules that I am creating
     */
 
-    Vector#(4,Vector#(4,Reg#(Bit#(32)))) c; 
-    Vector#(4,Vector#(4,Reg#(PE))) PE_matrix; 
+    Vector#(4,Vector#(4,Reg#(Bit#(32)))) c; //TODO
+    Vector#(4,Vector#(4,Reg#(PE))) PE_matrix <- mkModule____; //TODO 
+
+    FIFO#(Vector#(4,Reg#(Bit#(32)))) b_q <- mkBypassFIFO;
+    FIFO#(Vector#(4,Reg#(Bit#(32)))) a_q <- mkBypassFIFO;
+
+    Reg#(Bit#(2)) h <- mkReg(0);
+    Reg#(Bit#(2)) w <- mkReg(0);
+
+
+    rule bram_access; //TODO: some if has to be here
+
+    endrule
+
+
+    rule doTask; //TODO: when will this task run till - there has to be a number of clocks or a stopping time 
+
+
+        //Logic to populate the large Queues - hopefully it enqueues after a clock cycle and not in the same cycle!
+        let temp_h = h;
+        let temp_w = w;
+        Vector#(4,Bit#(32)) temp_b_vec <- ReplicateM(0);
+        Vector#(4,Bit#(32)) temp_a_vec <- ReplicateM(0);
+        Bool in_boundary = True;
+        let index = h;
+        
+        //Hopefully this is combinational!
+        while (in_boundary) begin
+            //TODO : requires an extra rule for this!! 
+            temp_a_vec[index] =  //Get value from bram - the position being accessed will be Bram_vec[temp_w] - temp_h
+            temp_b_vec[index] =  //Get value from bram  - the read is just once as both the a and b is in the same place!
+            //TODO: somewhere I need to add the temp_vecs to the queue itself - this should happen once all the things have been added though!!
+            // Do I even need that queue I could just use this vector aas it does thee job as well - fill it up and then use it when needed
+            index = index + 1;
+            if (temp_w == 0 || temp_h == 3) //TODO: find all 3s and 2s and 4s that are hardcoded 
+                in_boundary = False;
+            else begin
+                temp_w = temp_w - 1;
+                temp_h = temp_h + 1;
+            end
+        end
+        //end of combinational 
+
+        if (w == 3) begin
+            if (h!= 3) 
+                h <= h + 1;
+        end else begin
+            w <= w + 1;
+        end
+
+        //this does the work for all the PEs
+        let b_vec = b_q.first();
+        let a_vec = a_q.first();//TODO - the first run should be empty! - but what is the end condition for this rule
+        a_q.deq();
+        b_q.deq();
+        //Is this combinational? It must be 
+        for (Integer j = 0 ; i < 4 ; i ++) begin
+            for (Integer i = 0 ; j < 4 ; j ++) begin
+                //Recieve the values from the previous Q or from the prervious PE
+                if (j == 0)
+                    PE_matrix[j][i].recieve_b(b_vec[i]);
+                else
+                    PE_matrix[j][i].recieve_b(PE_matrix[j-1][i].send_b());
+                if (i == 0)
+                    PE_matrix[j][i].recieve_a(a_vec[j]);
+                else
+                    PE_matrix[j][i].recieve_a(PE_matrix[j][i-1].send_a());
+                
+                //Do product and Dump the values if the last PE
+                if (i == 3)
+                    PE_matrix[j][i].send_a()
+                if (j == 3)
+                    PE_matrix[j][i].send_b()
+
+            end
+        end
+
+    endrule
 
 
 
@@ -178,6 +303,8 @@ module mkSystolic(sysMM);
     /*
     Questions:
     1. THe define and then how to paass arround the BRAM stuff
+    2. parameterisation - how can you give in a size of a matrix in the test or the function and expect 
+        everything to adapt to this value - is there a way to do this? 
 
 
 
