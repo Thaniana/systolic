@@ -1,28 +1,61 @@
-a = [["a11","a12","a13","a14"],
-     ["a21","a22","a23","a24"],
-     ["a31","a32","a33","a34"],
-     ["a41","a42","a43","a44"]]
+a = ["a11","a12","a13","a14","a21","a22","a23","a24","a31","a32","a33","a34","a41","a42","a43","a44"]
 
-b = [["b11","b12","b13","b14"],
-     ["b21","b22","b23","b24"],
-     ["b31","b32","b33","b34"],
-     ["b41","b42","b43","b44"]]
+b = ["b11","b12","b13","b14","b21","b22","b23","b24","b31","b32","b33","b34","b41","b42","b43","b44"]
 
-
+#bank it - so bank 1 to 2 to 3
 c = [[["",""],["",""],["",""],["",""]],
      [["",""],["",""],["",""],["",""]],
      [["",""],["",""],["",""],["",""]],
      [["",""],["",""],["",""],["",""]]]
 
 
-for h in range(4):
-    for w in range(4):
-        w_aa = 3-w
-        h_aa = h
-        w_bb = 3 - h
-        h_bb = w
-        c[h_aa][w_aa][0] = a[h][w]
-        c[h_bb][w_bb][1] = b[h][w]
+
+def indices_to_loc(h,w):
+     return h*4 + w
+
+
+w = 0
+h = 0
+go = True
+while(go):
+     aa = indices_to_loc(h,3-w)
+     bb = indices_to_loc(3-w,h)
+     print(w,h,aa,bb)
+     c[w][h][0] = a[aa]
+     c[w][h][1] = b[bb]    
+     if (w==3):
+          w = 0
+          if (h == 3):
+               h = 0
+               go = False
+          else:
+               h = h+1
+     else:
+          w = w+1         
+          
+       
+# for h in range(4):
+#     for w in range(4):
+#         w_aa = 3-w
+#         h_aa = h
+#         w_bb = 3 - h
+#         h_bb = w
+#         c[h_aa][w_aa][0] = a[h][w]
+#         c[h_bb][w_bb][1] = b[h][w]
+
+# if (w_fill == 3) begin
+#             if (h_fill == 3) begin
+#                 h_fill <= 0;
+#                 status <= ready_sys;//scratchpad is filled
+#             end else 
+#                 h_fill <= h_fill + 1;
+#             w_fill <= 0;
+#         end else
+#             w_fill <= w_fill + 1;
+
+#         toA.enq(start_loca + indices_to_location(h,3-w));
+#         toB.enq(start_locb + indices_to_location(w,3-h));
+#         status <= fill_scratch_wait;
 
 print(c)
 

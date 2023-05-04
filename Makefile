@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := all
 BUILD_DIR=build
-BINARY_NAME=TbMM
+BINARY_NAME=TbsystolicMM
 BSC_FLAGS=--aggressive-conditions -vdir $(BUILD_DIR) -bdir $(BUILD_DIR) -simdir $(BUILD_DIR) -o 
-TOP_MODULE=mkTb
-BSV_FILES_TRACKED=TbMM.bsv
+TOP_MODULE=mkSystolicTest
+BSV_FILES_TRACKED=TbsystolicMM.bsv
 
 .PHONY: clean all $(BINARY_NAME)
 

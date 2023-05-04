@@ -1,0 +1,122 @@
+# a = [["a11","a12","a13","a14"],
+#      ["a21","a22","a23","a24"],
+#      ["a31","a32","a33","a34"],
+#      ["a41","a42","a43","a44"]]
+
+# b = [["b11","b12","b13","b14"],
+#      ["b21","b22","b23","b24"],
+#      ["b31","b32","b33","b34"],
+#      ["b41","b42","b43","b44"]]
+
+a = ["a11","a12","a13","a14","a21","a22","a23","a24","a31","a32","a33","a34","a41","a42","a43","a44"]
+
+b = ["b11","b12","b13","b14","b21","b22","b23","b24","b31","b32","b33","b34","b41","b42","b43","b44"]
+
+
+c = [[["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]]]
+
+PE_matrix = [[["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]],
+     [["",""],["",""],["",""],["",""]]]
+
+
+#convert ab
+# for h in range(4):
+#     for w in range(4):
+#         w_aa = 3-w
+#         h_aa = h
+#         w_bb = 3 - h
+#         h_bb = w
+#         c[h_aa][w_aa][0] = a[h][w]
+#         c[h_bb][w_bb][1] = b[h][w]
+
+# #c is the arrayy that the diagonal thing will traverse. 
+
+# print(c)
+
+def indices_to_loc(h,w):
+     return h*4 + w
+
+
+w = 0
+h = 0
+go = True
+while(go):
+     aa = indices_to_loc(h,3-w)
+     bb = indices_to_loc(3-w,h)
+    #  print(w,h,aa,bb)
+     c[w][h][0] = a[aa]
+     c[w][h][1] = b[bb]    
+     if (w==3):
+          w = 0
+          if (h == 3):
+               h = 0
+               go = False
+          else:
+               h = h+1
+     else:
+          w = w+1    
+
+print(c)
+
+out_boundary = True
+
+h = 0
+w = 0
+
+while (out_boundary):
+    temp_h = h
+    temp_w = w
+    b_vec = [0,0,0,0]
+    a_vec = [0,0,0,0]
+    in_boundary = True
+    index = h
+
+    while (in_boundary):
+        a_vec[index] =  c[temp_h][temp_w][0] 
+        b_vec[index] =  c[temp_h][temp_w][1]
+        index = index + 1
+        if (temp_w == 0 or temp_h == 3): 
+            in_boundary = False
+        else:
+            temp_w = temp_w - 1
+            temp_h = temp_h + 1
+ 
+    print(a_vec)
+    print(b_vec)
+    if (w == 3):
+        if (h!= 3):
+            h = h + 1
+        else:
+            out_boundary = False;
+    else:
+        w = w + 1
+
+    #this wont work fine as python will do this sequentially not combinationally
+    for i in range(3,-1,-1): 
+        for j in range(3,-1,-1):
+            if (j == 0):
+                PE_matrix[j][i][1] = b_vec[i]
+            else:
+                PE_matrix[j][i][1] = PE_matrix[j-1][i][1]
+            if (i == 0):
+                PE_matrix[j][i][0] = a_vec[j]
+            else:
+                PE_matrix[j][i][0] = PE_matrix[j][i-1][0]
+            
+            if (i == 3):
+                junk = PE_matrix[j][i][0]
+            if (j == 3):
+                junk = PE_matrix[j][i][1]
+    for i in PE_matrix:
+        print(i)
+
+# I may have to empty the b and a_vec at the end to make sure that I am not getting incorrect vales from there
+
+#diagonalisation is working!!
+
+# I can just pass this down to the circuit rather than doing a whole external queue
