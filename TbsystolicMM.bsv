@@ -1,22 +1,3 @@
-/*
-the brams and the gaurds!!
-
-Should I rather use an FSM!
-
-Ok much better now - it is reading and at least moving on - some logic maybe incorrect
-
-The question is how to parametize the function!
-
-THe issue is with the testcase - request for one of them gets over writteen
-
-*/
-
-//toppipeline.bsv - is th file to look into for how to gt 
-
-//vmh file starts with @0 and thn each line is th lin with th bit 32 value to hold and the n no need to end 
-//add tag Bin instead of tag Hex in the top pipeline bsv
-
-
 import BRAM::*;
 import systolicMM::*;
 
@@ -26,7 +7,7 @@ typedef enum {Ready, ReqA,Save_RespA,ReqB,RespA,RespB,ReqC, Compare, Compare_che
 module mkSystolicTest(Empty);
 
     BRAM_Configure cfgA = defaultValue();
-    cfgA.loadFormat = tagged Hex "numbered.vmh";
+    cfgA.loadFormat = tagged Hex "identity.vmh";
     BRAM2PortBE#(Addr, Data,4) bram <- mkBRAM2ServerBE(cfgA);//param
     //What is this 4 over here? - the n one 
     //the addrress length should now 
@@ -141,7 +122,7 @@ module mkSystolicTest(Empty);
 
     rule cmp_check  if (status == Compare_check);
         Data x <- bram.portB.response.get();
-        $display("Value = ",x);//TODO it is cutting off at 2 hexadecimal digits 
+        $display("cnt = ", cmp_cnt-32, " Value = ",x);//TODO it is cutting off at 2 hexadecimal digits 
         if (cmp_cnt == 47) begin
             cmp_cnt <= 32;
             status <= Ready;

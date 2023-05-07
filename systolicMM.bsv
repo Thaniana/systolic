@@ -18,14 +18,17 @@ import BRAM::*;
 
 //TODO the issue of b_vec and a_vec hhas nothing to do with the PE matrix rule where it is being read
 
-// 'define m_length 4
 
-typedef Bit#(6) Addr;//this is the max number of rows in the matrix input 
+typedef 4 M;
+typedef 2 M_b; //this is the bit width required to store matrix of size 4
+typedef 3 M_minus;
+
+typedef Bit#(6) Addr;//param
 typedef Bit#(32) Data;
 
 typedef struct { Data a; Data b;} AB deriving (Eq, FShow, Bits, Bounded);
 
-typedef struct {Bool access; Bit#(2) index;} Bram_access deriving (Eq, FShow, Bits, Bounded);
+typedef struct {Bool access; Bit#(M_b) index;} Bram_access deriving (Eq, FShow, Bits, Bounded);
 
 typedef struct {Addr location; Data value;} Response_c deriving (Eq, FShow, Bits, Bounded);
 
@@ -33,7 +36,7 @@ typedef struct {Addr location; Data value;} Response_c deriving (Eq, FShow, Bits
 
 //the max index of result here is 4x4
 //add the start location to this as well
-function Addr indices_to_location(Bit#(2) h_in, Bit#(2) w_in);
+function Addr indices_to_location(Bit#(M_b) h_in, Bit#(M_b) w_in);
     //this should combinationally go through all the PE locations and get us the result out
     Addr h = extend(h_in);
     Addr w = extend(w_in);
@@ -121,6 +124,9 @@ module mkSystolic(MM_sys);
     /*
     This is the parent which will access all the other smaller modules that I am creating
     */
+
+    Integer m = valueOf(M);
+    Bit#(M_b) m_minus = fromInteger(valueOf(M_minus));
     Reg#(SystolicStatus) status <- mkReg(Ready);
     Reg#(Addr) start_loca <- mkReg(0);
     Reg#(Addr) start_locb <- mkReg(0);
@@ -131,30 +137,21 @@ module mkSystolic(MM_sys);
     FIFO#(Addr) toB <- mkBypassFIFO;
     FIFO#(Data) fromB <- mkBypassFIFO;
 
-    Reg#(Bit#(2)) h_fill <- mkReg(0);//param: will change according to the length of the rows and columns 
-    Reg#(Bit#(2)) w_fill <- mkReg(0);
+    Reg#(Bit#(M_b)) h_fill <- mkReg(0);
+    Reg#(Bit#(M_b)) w_fill <- mkReg(0);
 
-    Vector#(4,Vector#(4,PE)) pe_matrix <- replicateM(replicateM(mkPE())); //syntax:check that REg is not needed arround PE
+    Vector#(M,Vector#(M,PE)) pe_matrix <- replicateM(replicateM(mkPE())); 
 
-    Vector#(4,BRAM1Port#(Bit#(2),AB)) scratchpad <- replicateM(mkBRAM1Server(defaultValue)); //syntax: is this correct
-    //param
+    Vector#(M,BRAM1Port#(Bit#(M_b),AB)) scratchpad <- replicateM(mkBRAM1Server(defaultValue)); 
 
     
-    Reg#(Bit#(2)) h_sys <- mkReg(0);//param:
-    Reg#(Bit#(2)) w_sys <- mkReg(0);
+    Reg#(Bit#(M_b)) h_sys <- mkReg(0);
+    Reg#(Bit#(M_b)) w_sys <- mkReg(0);
 
-    Reg#(Bit#(2)) h_creq <- mkReg(0);//param:
-    Reg#(Bit#(2)) w_creq <- mkReg(0);
+    Reg#(Bit#(M_b)) h_creq <- mkReg(0);
+    Reg#(Bit#(M_b)) w_creq <- mkReg(0);
 
-
-    Vector#(4,Reg#(Data)) b_vec <- replicateM(mkReg(0));
-    Vector#(4,Reg#(Data)) a_vec <- replicateM(mkReg(0));
-
-    Vector#(4,Reg#(Data)) empty_vec <- replicateM(mkReg(0));
-
-    // Reg#(Bit#(4)) index <- mkReg(0);//param:
-
-    Vector#(4,Reg#(Bram_access)) bram_read <- replicateM(mkReg(Bram_access{access:False,index:0})); //make sure it is insttantiate as False
+    Vector#(M,Reg#(Bram_access)) bram_read <- replicateM(mkReg(Bram_access{access:False,index:0})); //make sure it is insttantiate as False
 
     Reg#(Data) cycles <- mkReg(0);
 
@@ -174,8 +171,8 @@ module mkSystolic(MM_sys);
                         datain: in});
 
 
-        if (w_fill == 3) begin
-            if (h_fill == 3) begin
+        if (w_fill == m_minus) begin
+            if (h_fill == m_minus) begin
                 h_fill <= 0;
                 w_fill <= 0;
                 status <= Run_sys;//scratchpad is filled
@@ -194,8 +191,8 @@ module mkSystolic(MM_sys);
         $display("Rule fill_scratchpad_rrequestt");
         
         status <= Fill_scratch_wait;
-        toA.enq(start_loca + indices_to_location(h_fill,3-w_fill));
-        toB.enq(start_locb + indices_to_location(3-w_fill,h_fill));
+        toA.enq(start_loca + indices_to_location(h_fill,m_minus-w_fill));
+        toB.enq(start_locb + indices_to_location(m_minus-w_fill,h_fill));
 
     endrule
 
@@ -205,10 +202,10 @@ module mkSystolic(MM_sys);
     
     rule write_vectors if (status == Run_sys_bram_read);
         $display("Rule write_vectors");
-        Vector#(4,Data) new_a_vec = replicate(0);
-        Vector#(4,Data) new_b_vec = replicate(0);
+        Vector#(M,Data) new_a_vec = replicate(0);
+        Vector#(M,Data) new_b_vec = replicate(0);
 
-        for (Integer bank = 0 ; bank < 4 ; bank = bank + 1) begin //param
+        for (Integer bank = 0 ; bank < m ; bank = bank + 1) begin 
             if (bram_read[bank].access) begin
                 let temp <- scratchpad[bank].portA.response.get(); //TODO: I need the brams vector to be accessible over here
                 new_a_vec[bram_read[bank].index] =  temp.a;
@@ -220,17 +217,10 @@ module mkSystolic(MM_sys);
         $display("new_a_vec", fshow(new_a_vec));
         $display("new_b_vec", fshow(new_b_vec));
 
-
-        // for (Integer v = 0 ; v < 4 ; v = v + 1) begin //param
-        //     a_vec[v] <= new_a_vec[v];
-        //     b_vec[v] <= new_b_vec[v];
-        // end
-
-
         //this should be the clock cycles
         //Note not a typical increment - ffollows top then right boundary  
-        if (w_sys == 3) begin
-            if (h_sys!= 3) begin
+        if (w_sys == m_minus) begin
+            if (h_sys!= m_minus) begin
                 h_sys <= h_sys + 1;
                 status <= Run_sys;
             end
@@ -246,8 +236,8 @@ module mkSystolic(MM_sys);
             status <= Run_sys;
         end
 
-        for (Integer j = 0 ; j < 4 ; j = j + 1) begin
-            for (Integer i = 0 ; i < 4 ; i = i + 1) begin
+        for (Integer j = 0 ; j < m ; j = j + 1) begin
+            for (Integer i = 0 ; i < m ; i = i + 1) begin
                 //Recieve the values from the previous Q or from the prervious PE
                 //TODO: fix the error here as the commands are actions and acttion values 
                 if (i == 0)
@@ -266,9 +256,9 @@ module mkSystolic(MM_sys);
                 
                 
                 //Do product and Dump the values if the last PE
-                if (i == 3)
+                if (i == m-1)
                     let a_ss <- pe_matrix[j][i].send_a(); 
-                if (j == 3) 
+                if (j == m-1) 
                     let b_ss <- pe_matrix[j][i].send_b();
             end
         end
@@ -279,12 +269,12 @@ module mkSystolic(MM_sys);
 
     rule systolic_cycle if (status == Run_sys); 
         $display("Rule systolic_cycle");
-        Bit#(2) temp_h = h_sys;//param:
-        Bit#(2) temp_w = w_sys;
+        Bit#(M_b) temp_h = h_sys;
+        Bit#(M_b) temp_w = w_sys;
         Bool in_boundary = True;
-        Bit#(2) ind = h_sys;
+        Bit#(M_b) ind = h_sys;
         
-        for (Integer i = 0 ; i < 4 ; i = i + 1) begin
+        for (Integer i = 0 ; i < m ; i = i + 1) begin
         //Hopefully this is combinational!
             if (in_boundary) begin 
                 scratchpad[temp_w].portA.request.put(BRAMRequest{write: False,
@@ -295,8 +285,8 @@ module mkSystolic(MM_sys);
                 bram_read[temp_w] <= Bram_access{access:True, index:ind};
                 ind = ind + 1;
 
-                //ALl this is nott combinational - or is it? i think it should work - try writing thiis 4 times - it should be fine
-                if (temp_w == 0 || temp_h == 3) //params
+                //ALl this is nott combinational - or is it? i think it should work - try writing thiis m times - it should be fine
+                if (temp_w == 0 || temp_h == m_minus)
                     in_boundary = False;
                 else begin
                     temp_w = temp_w - 1;
@@ -309,51 +299,13 @@ module mkSystolic(MM_sys);
 
     endrule
 
-    // rule systolic_PE_work if (status == Run_sys);
-    //     $display("Rule systolic_PE_work");
-    //     //this does the work for all the PEs
-    //     //Is this combinational? It must be!! 
-    //     for (Integer j = 0 ; j < 4 ; j = j + 1) begin
-    //         for (Integer i = 0 ; i < 4 ; i = i + 1) begin
-    //             //Recieve the values from the previous Q or from the prervious PE
-    //             //TODO: fix the error here as the commands are actions and acttion values 
-    //             if (i == 0)
-    //                 pe_matrix[j][i].recieve_a(a_vec[j]);
-    //             else begin
-    //                 let a_s <- pe_matrix[j][i-1].send_a();
-    //                 pe_matrix[j][i].recieve_a(a_s);
-    //             end
-                
-    //             if (j == 0)
-    //                 pe_matrix[j][i].recieve_b(b_vec[i]);
-    //             else begin
-    //                 let b_s <- pe_matrix[j-1][i].send_b();
-    //                 pe_matrix[j][i].recieve_b(b_s);
-    //             end 
-                
-                
-    //             //Do product and Dump the values if the last PE
-    //             if (i == 3)
-    //                 let a_ss <- pe_matrix[j][i].send_a(); 
-    //             if (j == 3) 
-    //                 let b_ss <- pe_matrix[j][i].send_b();
-    //         end
-    //     end
-
-    //     if (cycles == 10) //the 10 here comes from 3n - 2 total clock cycles needed for sys array
-    //         status <= Stop_sys;
-    //     else
-    //         cycles <= cycles + 1; //TODO: make sure it does it the correct number of timee - ie the adding to this 
-        
-    // endrule
-
     //ERROR: the PE work is the issue!!
     rule systolic_PE_work_two if (status == Stop_sys_input);
         $display("Rule systolic_PE_work_two");
         //this does the work for all the PEs
         //Is this combinational? It must be!! 
-        for (Integer j = 0 ; j < 4 ; j = j + 1) begin
-            for (Integer i = 0 ; i < 4 ; i = i + 1) begin
+        for (Integer j = 0 ; j < m ; j = j + 1) begin
+            for (Integer i = 0 ; i < m ; i = i + 1) begin
 
                 if (i == 0)
                     pe_matrix[j][i].recieve_a(0);
@@ -371,9 +323,9 @@ module mkSystolic(MM_sys);
                 
                 
                 //Do product and Dump the values if the last PE
-                if (i == 3)
+                if (i == m-1)
                     let a_ss <- pe_matrix[j][i].send_a(); 
-                if (j == 3) 
+                if (j == m-1) 
                     let b_ss <- pe_matrix[j][i].send_b();
             end
         end
@@ -392,9 +344,9 @@ module mkSystolic(MM_sys);
         start_locb <= loc_b;
         start_locc <= loc_c;
         status <= Fill_scratch_req;
-        //TODO this would better happen inside the modul with a started gaurd
-        for (Integer j = 0 ; j < 4 ; j = j + 1) begin
-            for (Integer i = 0 ; i < 4 ; i = i + 1) begin
+        //Fills up the Queues with 0 for the beginning
+        for (Integer j = 0 ; j < m ; j = j + 1) begin
+            for (Integer i = 0 ; i < m ; i = i + 1) begin
                 pe_matrix[j][i].recieve_a(0);
                 pe_matrix[j][i].recieve_b(0);
             end
@@ -426,8 +378,8 @@ module mkSystolic(MM_sys);
         let loc = start_locc + indices_to_location(h_creq,w_creq);
         $display("Action cReq ",h_creq,",",w_creq, ", ", loc);
         Response_c c_resp;
-        if (w_creq == 3) begin //param:
-            if (h_creq == 3) begin
+        if (w_creq == m_minus) begin 
+            if (h_creq == m_minus) begin
                 status <= Ready;
                 h_creq <= 0;
                 w_creq <= 0;
