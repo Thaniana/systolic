@@ -18,12 +18,26 @@ import BRAM::*;
 
 //TODO the issue of b_vec and a_vec hhas nothing to do with the PE matrix rule where it is being read
 
-
+//FOR 4x4
 typedef 4 M;
 typedef 2 M_b; //this is the bit width required to store matrix of size 4
 typedef 3 M_minus;
-
 typedef Bit#(6) Addr;//param
+
+// //FOR 2x2
+// typedef 2 M;
+// typedef 1 M_b; //this is the bit width required to store matrix of size 4
+// typedef 1 M_minus;
+// typedef Bit#(4) Addr;//param
+
+// ////FOR 16x16
+// typedef 16 M;
+// typedef 4 M_b; //this is the bit width required to store matrix of size 4
+// typedef 15 M_minus;
+// typedef Bit#(10) Addr;//param
+
+
+
 typedef Bit#(32) Data;
 
 typedef struct { Data a; Data b;} AB deriving (Eq, FShow, Bits, Bounded);
@@ -32,7 +46,6 @@ typedef struct {Bool access; Bit#(M_b) index;} Bram_access deriving (Eq, FShow, 
 
 typedef struct {Addr location; Data value;} Response_c deriving (Eq, FShow, Bits, Bounded);
 
-//TODO: use a typedef for all the 4s
 
 //the max index of result here is 4x4
 //add the start location to this as well
@@ -40,7 +53,7 @@ function Addr indices_to_location(Bit#(M_b) h_in, Bit#(M_b) w_in);
     //this should combinationally go through all the PE locations and get us the result out
     Addr h = extend(h_in);
     Addr w = extend(w_in);
-    Addr loc = h*4 + w;
+    Addr loc = h*4 + w;//param
     return loc;
 endfunction
 
@@ -127,6 +140,8 @@ module mkSystolic(MM_sys);
 
     Integer m = valueOf(M);
     Bit#(M_b) m_minus = fromInteger(valueOf(M_minus));
+    Addr total_cycles = fromInteger(m)*3 - 2;
+
     Reg#(SystolicStatus) status <- mkReg(Ready);
     Reg#(Addr) start_loca <- mkReg(0);
     Reg#(Addr) start_locb <- mkReg(0);
@@ -153,7 +168,7 @@ module mkSystolic(MM_sys);
 
     Vector#(M,Reg#(Bram_access)) bram_read <- replicateM(mkReg(Bram_access{access:False,index:0})); //make sure it is insttantiate as False
 
-    Reg#(Data) cycles <- mkReg(0);
+    Reg#(Addr) cycles <- mkReg(0);//does not havee to be addr datatype
 
 
     rule fill_scratchpad_respond if (status == Fill_scratch_respB);
@@ -330,7 +345,7 @@ module mkSystolic(MM_sys);
             end
         end
 
-        if (cycles == 10) //the 10 here comes from 3n - 2 total clock cycles needed for sys array
+        if (cycles == total_cycles) //the 10 here comes from 3n - 2 total clock cycles needed for sys array
             status <= Stop_sys;
         else
             cycles <= cycles + 1; //TODO: make sure it does it the correct number of timee - ie the adding to this 
