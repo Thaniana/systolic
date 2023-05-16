@@ -2,27 +2,24 @@ import Vector::*;
 import FIFO::*;
 import SpecialFIFOs::*;
 import BRAM::*;
+import memTypes::*;
 
-//DEBUGING STEPS - look at the indexing and see if the righht value is being passes through - used the numbered version for this 
-//would make the testing easier this way!
-//The scratchpad B is off for some reason! - that I thhink is whhat leads to the issue!
+/*
+Change to the line input!
 
-//the scratchpad looks good also 
+So all a,b and c will be have to be lines right? 
 
-//next is the systolic reading!
-
-//identity works!!
+So the scratchpad filling rules will have to be from a vector and not from a the bram via a req and a resp - there 
+will only be one request!
 
 
-//All works perfectly in the 2 test cases - need to parameterise now! Maybe also test with 16x16 case if needed!
-
-//TODO the issue of b_vec and a_vec hhas nothing to do with the PE matrix rule where it is being read
+*/
 
 //FOR 4x4
 typedef 4 M;
 typedef 2 M_b; //this is the bit width required to store matrix of size 4
 typedef 3 M_minus;
-typedef Bit#(6) Addr;//param
+typedef LineAddr Addr;//param
 
 // //FOR 2x2
 // typedef 2 M;
@@ -38,13 +35,11 @@ typedef Bit#(6) Addr;//param
 
 
 
-typedef Bit#(32) Data;
 
 typedef struct { Data a; Data b;} AB deriving (Eq, FShow, Bits, Bounded);
 
 typedef struct {Bool access; Bit#(M_b) index;} Bram_access deriving (Eq, FShow, Bits, Bounded);
 
-typedef struct {Addr location; Data value;} Response_c deriving (Eq, FShow, Bits, Bounded);
 
 
 //the max index of result here is 4x4
@@ -120,15 +115,15 @@ module mkPE(PE);
 endmodule
 
 
-typedef enum {Ready, Fill_scratch_req, Fill_scratch_wait, Fill_scratch_respA, Fill_scratch_respB, Run_sys, Run_sys_bram_read, Stop_sys_input, Stop_sys} SystolicStatus deriving(Bits,Eq);
+typedef enum {Ready, Resp_done, Run_sys, Run_sys_bram_read, Stop_sys_input, Stop_sys} SystolicStatus deriving(Bits,Eq);
 interface MM_sys;
     method Action start_conversion(Addr loc_a, Addr loc_b, Addr loc_c);//begins the acc, loc are the start 
     //addresses of the matrix in the memory
-    method ActionValue#(Addr) aReq(); //Req sends a specific address location to get the value from
-    method Action aResp(Data a); //responds with the value stored at that location
-    method ActionValue#(Addr) bReq(); //Req sends a specific address location to get the value from
-    method Action bResp(Data a); //responds with the value stored at that location
-    method ActionValue#(Response_c) cReq(); //sends the final value to be stored at location for c
+    method ActionValue#(MainMemReq) aReq(); //Req sends a specific address location to get the value from
+    method Action aResp(MainMemResp a); //responds with the value stored at that location
+    method ActionValue#(MainMemReq) bReq(); //Req sends a specific address location to get the value from
+    method Action bResp(MainMemResp b); //responds with the value stored at that location
+    method ActionValue#(MainMemReq) cReq(); //sends the final value to be stored at location for c
 endinterface
 
 (* synthesize *)
@@ -140,17 +135,21 @@ module mkSystolic(MM_sys);
 
     Integer m = valueOf(M);
     Bit#(M_b) m_minus = fromInteger(valueOf(M_minus));
-    Addr total_cycles = fromInteger(m)*3 - 2;
+    Addr total_cycles = fromInteger(m)*3 - 2 + 1;
 
     Reg#(SystolicStatus) status <- mkReg(Ready);
-    Reg#(Addr) start_loca <- mkReg(0);
-    Reg#(Addr) start_locb <- mkReg(0);
+    // Reg#(Addr) start_loca <- mkReg(0);
+    // Reg#(Addr) start_locb <- mkReg(0);
     Reg#(Addr) start_locc <- mkReg(0);
 
-    FIFO#(Addr) toA <- mkBypassFIFO;
-    FIFO#(Data) fromA <- mkBypassFIFO;
-    FIFO#(Addr) toB <- mkBypassFIFO;
-    FIFO#(Data) fromB <- mkBypassFIFO;
+    Reg#(MainMemResp) line_a <- mkReg(?);
+    Reg#(MainMemResp) line_b <- mkReg(?);//TODO - this may not work as vector vs regs inside the vector -  but the other option may be inefficient
+    // Reg#(MainMemResp) line_c <- mkReg(replicateM(0));
+
+    FIFO#(MainMemReq) toA <- mkBypassFIFO;
+    FIFO#(Vector#(16,Data)) fromA <- mkBypassFIFO;//param - check instantiation
+    FIFO#(MainMemReq) toB <- mkBypassFIFO;
+    FIFO#(Vector#(16,Data)) fromB <- mkBypassFIFO;//param
 
     Reg#(Bit#(M_b)) h_fill <- mkReg(0);
     Reg#(Bit#(M_b)) w_fill <- mkReg(0);
@@ -171,12 +170,13 @@ module mkSystolic(MM_sys);
     Reg#(Addr) cycles <- mkReg(0);//does not havee to be addr datatype
 
 
-    rule fill_scratchpad_respond if (status == Fill_scratch_respB);
-        $display("Rule fill_scratchpad_respond");
-        let a_temp = fromA.first();
-        let b_temp = fromB.first();
-        fromA.deq();
-        fromB.deq();//CHECK: hopefully the req method is called asap 
+
+
+    rule fill_scratchpad if (status == Resp_done);
+        $display("Rule fill_scratchpad");
+
+        let a_temp = line_a[indices_to_location(h_fill,m_minus-w_fill)];
+        let b_temp = line_b[indices_to_location(m_minus-w_fill,h_fill)];
 
         AB in = AB{a:a_temp,b:b_temp};//TODO: check if this is correct syntax
 
@@ -194,26 +194,11 @@ module mkSystolic(MM_sys);
             end else begin
                 h_fill <= h_fill + 1;
                 w_fill <= 0;
-                status <= Fill_scratch_req;
             end
         end else begin
             w_fill <= w_fill + 1;
-            status <= Fill_scratch_req;
         end
     endrule
-
-    rule fill_scratchpad_request if (status == Fill_scratch_req);
-        $display("Rule fill_scratchpad_rrequestt");
-        
-        status <= Fill_scratch_wait;
-        toA.enq(start_loca + indices_to_location(h_fill,m_minus-w_fill));
-        toB.enq(start_locb + indices_to_location(m_minus-w_fill,h_fill));
-
-    endrule
-
-
-//TODO: this has to be fixed 
-//TODO: need multiple rules to access multiple - just add a for loop here
     
     rule write_vectors if (status == Run_sys_bram_read);
         $display("Rule write_vectors");
@@ -355,10 +340,10 @@ module mkSystolic(MM_sys);
 
     method Action start_conversion(Addr loc_a, Addr loc_b, Addr loc_c ) if (status == Ready);
         $display("Action start conversion");
-        start_loca <= loc_a;
-        start_locb <= loc_b;
+        // start_loca <= loc_a;
+        // start_locb <= loc_b;
         start_locc <= loc_c;
-        status <= Fill_scratch_req;
+        // status <= Fill_scratch_req;
         //Fills up the Queues with 0 for the beginning
         for (Integer j = 0 ; j < m ; j = j + 1) begin
             for (Integer i = 0 ; i < m ; i = i + 1) begin
@@ -366,49 +351,42 @@ module mkSystolic(MM_sys);
                 pe_matrix[j][i].recieve_b(0);
             end
         end
+        toA.enq(MainMemReq{write:0,addr:loc_a,data:?});
+        toB.enq(MainMemReq{write:0,addr:loc_b,data:?});
+
     endmethod
 
-    method ActionValue#(Addr) aReq(); //gives address to get request from
+    method ActionValue#(MainMemReq) aReq(); //gives address to get request from
 		$display("Action aReq");
         toA.deq();
     	return toA.first();
     endmethod
-    method Action aResp(Data a) if (status == Fill_scratch_wait);//gets tthe vvaluee stored at that address
+    method Action aResp(MainMemResp a);//gets tthe vvaluee stored at that address
     	$display("Action aResp");
-        fromA.enq(a);
-        status <= Fill_scratch_respA;
+        line_a <= a;
     endmethod
-    method ActionValue#(Addr) bReq();
+    method ActionValue#(MainMemReq) bReq();
 		$display("Action bReq");
         toB.deq();
 		return toB.first();
     endmethod
-    method Action bResp(Data b) if (status == Fill_scratch_respA);
+    method Action bResp(MainMemResp b );
 		$display("Action bResp");
-        fromB.enq(b);
-        status <= Fill_scratch_respB;
+        line_b <= b;
+        status <= Resp_done;//Make sure the a responds first
     endmethod
 
-    method ActionValue#(Response_c) cReq() if (status == Stop_sys);
-        let loc = start_locc + indices_to_location(h_creq,w_creq);
-        $display("Action cReq ",h_creq,",",w_creq, ", ", loc);
-        Response_c c_resp;
-        if (w_creq == m_minus) begin 
-            if (h_creq == m_minus) begin
-                status <= Ready;
-                h_creq <= 0;
-                w_creq <= 0;
+    method ActionValue#(MainMemReq) cReq() if (status == Stop_sys);
+        MainMemReq c;
+        c.write = 1;
+        c.addr = 2;
+        for (Integer j = 0 ; j < m ; j = j + 1) begin //param
+            for (Integer i = 0 ; i < m ; i = i + 1) begin
+                let loc = indices_to_location(fromInteger(j),fromInteger(i));
+                c.data[loc] <- pe_matrix[j][i].read_c();
             end
-            else begin
-                w_creq <= 0;
-                h_creq <= h_creq + 1;
-            end
-        end else begin
-            w_creq <= w_creq + 1;
         end
-        c_resp.location = loc;
-        c_resp.value <- pe_matrix[h_creq][w_creq].read_c();
-        return c_resp;
+        return c;
 
     endmethod
 

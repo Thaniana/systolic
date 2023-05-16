@@ -1,6 +1,7 @@
 //CHECK WITH LIKE A 2x2 or a 3x3 to figure out if the issue is with making due to the size
 import BRAM::*;
 import systolicMM::*;
+import memTypes::*;
 
 typedef enum {Ready, ReqA,Save_RespA,ReqB,RespA,RespB,ReqC, Compare, Compare_check} Status deriving(Bits,Eq);
 
@@ -9,8 +10,8 @@ module mkSystolicTest(Empty);
 
 
     BRAM_Configure cfgA = defaultValue();
-    cfgA.loadFormat = tagged Hex "identity.vmh";//param
-    BRAM2PortBE#(Addr, Data,4) bram <- mkBRAM2ServerBE(cfgA);
+    cfgA.loadFormat = tagged Hex "identityvector.vmh";//param
+    BRAM2Port#(LineAddr, MainMemResp) bram <- mkBRAM2Server(cfgA);//param
     //What is this 4 over here? - the n one 
     //the addrress length should now 
 
@@ -30,26 +31,26 @@ module mkSystolicTest(Empty);
 
     //for 16x16
     // Reg#(Addr) cmp_cnt <- mkReg(512);//param
-    Reg#(Addr) cmp_cnt <- mkReg(32);//4x4
+    Reg#(Addr) cmp_cnt <- mkReg(2);//4x4
     // Reg#(Addr) cmp_cnt <- mkReg(8);//2x2
 
 
     //NEW STUFF
 
-    Reg#(Addr) areq <- mkRegU;
-    Reg#(Addr) breq <- mkRegU;
+    Reg#(MainMemReq) areq <- mkRegU;
+    Reg#(MainMemReq) breq <- mkRegU;
 
-    Reg#(Data) data_a <- mkReg(0);    
+    Reg#(MainMemResp) data_a <- mkReg(?);    
 
     rule requestA if (status == ReqA);
         $display("test requestA");
         let req <- mma.aReq;
         if (debug) $display("Get AReq", fshow(req));
         areq <= req;
-        bram.portB.request.put(BRAMRequestBE{
-                writeen: 0,
+        bram.portB.request.put(BRAMRequest{
+                write: False,
                 responseOnWrite: False,
-                address: req,
+                address: req.addr,
                 datain: ?});
         status <= Save_RespA;
     endrule
@@ -58,7 +59,7 @@ module mkSystolicTest(Empty);
     rule save_responseA if (status == Save_RespA);
         let x <- bram.portB.response.get();
         let req = areq;
-        // if (debug) $display("Save AResp ", fshow(req), fshow(x));
+        if (debug) $display("Save AResp ", fshow(req), fshow(x));
         data_a <= x;
         status <= ReqB;
     endrule
@@ -75,10 +76,10 @@ module mkSystolicTest(Empty);
         let req <- mma.bReq;
         breq <= req;
         if (debug) $display("Get BReq", fshow(req));
-        bram.portB.request.put(BRAMRequestBE{
-          writeen: 0,
+        bram.portB.request.put(BRAMRequest{
+          write: False,
           responseOnWrite: False,
-          address: req,
+          address: req.addr,
           datain: ?});
         status <= RespA;
     endrule
@@ -88,73 +89,76 @@ module mkSystolicTest(Empty);
         let req = breq;
         if (debug) $display("Get BResp ", fshow(req), fshow(x));
         mma.bResp(x);
-        if (cycle_count == 15) begin //param
-        // if (cycle_count == 255) begin //16x16
-        // if (cycle_count == 7) begin //2x2
-            status <= ReqC;
-            cycle_count <= 0;
-        end
-        else begin
-            cycle_count <= cycle_count + 1;
-            status <= ReqA;
-        end
+        status <= ReqC;
+        // if (cycle_count == 15) begin //param
+        // // if (cycle_count == 255) begin //16x16
+        // // if (cycle_count == 7) begin //2x2
+        //     status <= ReqC;
+        //     cycle_count <= 0;
+        // end
+        // else begin
+        //     cycle_count <= cycle_count + 1;
+        //     status <= ReqA;
+        // end
     endrule
 
 
     rule requestC if (status == ReqC);
         let req <- mma.cReq;
         if (debug) $display("Get CReq", fshow(req));//this prints correctly here and then messes up someplace else
-        bram.portB.request.put(BRAMRequestBE{
-          writeen: 11,
+        bram.portB.request.put(BRAMRequest{
+          write: True,
           responseOnWrite: False,
-          address: req.location,
-          datain: req.value});
-        if (cycle_count_c == 15) begin //param
-        // if (cycle_count_c == 7) begin //2x2
-        // if (cycle_count_c == 255) begin //16x16
-            status <= Compare;
-            cycle_count_c <= 0;
-        end
-        else
-            cycle_count_c <= cycle_count_c + 1;
+          address: req.addr,
+          datain: req.data});
+          status <= Compare;
+        // if (cycle_count_c == 15) begin //param
+        // // if (cycle_count_c == 7) begin //2x2
+        // // if (cycle_count_c == 255) begin //16x16
+        //     status <= Compare;
+        //     cycle_count_c <= 0;
+        // end
+        // else
+        //     cycle_count_c <= cycle_count_c + 1;
     endrule
 
 
     rule cmp_check  if (status == Compare_check);
-        Data x <- bram.portB.response.get();
-        $display("cnt = ", cmp_cnt-32, " Value = ",x);//param
+        let x <- bram.portB.response.get();
+        // $display("cnt = ", cmp_cnt-32, " Value = ",x);//param
+        $display("c = ", fshow(x));
         // $display("cnt = ", cmp_cnt-8, " Value = ",x);//2x2
         // $display("cnt = ", cmp_cnt-512, " Value = ",x);
 
-        if (cmp_cnt == 47) begin //param
-            cmp_cnt <= 32;//param
+        // if (cmp_cnt == 47) begin //param
+        //     cmp_cnt <= 32;//param
         // if (cmp_cnt == 767) begin //16x16
         //     cmp_cnt <= 512;//16x16
         // if (cmp_cnt == 11) begin //2x2
         //     cmp_cnt <= 8;//2x2
-            status <= Ready;
-            $display("end test");
-            $fflush(stderr);
-            $finish;
-        end 
-        else begin
-            cmp_cnt <= cmp_cnt + 1;
-            status <= Compare;
-        end
+        status <= Ready;
+        $display("end test");
+        $fflush(stderr);
+        $finish;
+        // end 
+        // else begin
+        //     cmp_cnt <= cmp_cnt + 1;
+        //     status <= Compare;
+        // end
     endrule
     
     rule cmp if (status == Compare);
-        bram.portB.request.put(BRAMRequestBE{
-          writeen: 0,
+        bram.portB.request.put(BRAMRequest{
+          write: False,
           responseOnWrite: False,
-          address: cmp_cnt,
+          address: 2, //param
           datain: ?});
         status <= Compare_check;
     endrule
 
     rule start if (status == Ready);
         $display("test started");
-        mma.start_conversion(0,16,32);//param
+        mma.start_conversion(0,1,2);//param
         // mma.start_conversion(0,256,512);
         // mma.start_conversion(0,4,8);//2x2
 
